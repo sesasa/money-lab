@@ -1,0 +1,20 @@
+All eight findings are fixed, and I found no remaining substantive defects in the MVP. I only read the files, as you asked; I didn't run the tests.
+
+## Each finding
+
+1. **Payment labels at zero output (fixed):** the label now shows $0 when Y = 0 (`EconomyMap.tsx:46`). When Y > 0, M·V·share per period matches the ledger's M·V·dt final sale, because M is read after issuance.
+2. **One tick per drag (fixed):** the slider keeps a local draft while you drag and only changes the model on pointer release, key release or blur. It skips the change if the value hasn't moved (`ScenarioControls.tsx:8-13`). Holding an arrow key also gives one tick, on release.
+3. **Target P typing (fixed):** the field keeps what you type as text and applies it on blur or Enter. It only clamps then, and skips unchanged values. Typing "0.8" now works.
+4. **Velocity explanation (fixed):** there is now a separate auto-mode text, and it describes the issuer's direction correctly (`simulationEngine.ts:67-69`).
+5. **Transaction IDs (fixed):** IDs now look like `${tick}-issue-${source}-${index}`, with source `manual` or `auto`, so the two can't collide in the same tick.
+6. **Starting screen (fixed):** t = 0 is labelled "Steady-state starting point". The Households inspector shows "No steps yet", the ledger shows its empty-state message, and the notes now say no transactions have run at t = 0.
+7. **M slider range (fixed):** the out-of-range hint appears in auto mode.
+8. **Accessibility (fixed):** the tabs now have a roving tabindex, `aria-controls`, a tabpanel and Arrow/Home/End keys. The dialog cleanup calls `close()` and returns focus to the button that opened it.
+
+## Minor remaining issues (not blockers)
+
+- **Out-of-range hint disappears in manual mode** (`ScenarioControls.tsx:37`). If auto drives M outside 10–300 (it can reach about 3200) and you then turn auto off, the thumb stays pinned at 300. The hint goes back to "Total dollars across all five wallets", and the next nudge jumps M straight into range. Fix: base the out-of-range hint on M alone, not on the auto setting.
+- **Focus restoration in Safari** (`ModelNotes.tsx:6`). Safari doesn't focus a button when it's clicked, so `document.activeElement` is `<body>` and focus isn't restored. Passing the opener element in, or storing a ref in `App`, would fix it in every browser.
+- **Releasing a drag outside the slider.** If the pointer is let go outside the input, the change still applies on the next blur, so nothing is lost. But until then the display can show the draft value while the model hasn't changed. Also applying the change on the native `change` event would close that gap. The current test only releases inside the slider.
+
+None of these affect the teaching claims or the accounting. The UI now matches what the engine computes.

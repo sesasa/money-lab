@@ -1,0 +1,95 @@
+# Review: One-Country Monetary Circulation MVP
+
+The overall design is sound. The scope is disciplined, the closure is honest, and treating the issuer as the only thing that changes M is the right invariant. The main risks are **sequencing (circularity between P, Y and feasible payments)**, an **asymmetric income payout**, and **V being asserted rather than measured**. Details below, highest impact first.
+
+---
+
+## 1. Critical economic and modeling flaws
+
+### 1.1 Circularity in "compute flows → set P → settle"
+P depends on realized Y. Realized Y depends on whether payments clear. Payment feasibility depends on P. You avoid a fixed-point or "settlement rounds" hack only if the step order removes that circularity.
+
+**Recommendation: a pipeline with one-step lags.**
+- Sales in step *t* draw only from each seller's **start-of-step output inventory**.
+- Production in step *t* uses only **start-of-step input inventory**.
+- Final quantity is fixed physically before any money moves: Y·dt = min(distributor stock, distribution capacity·dt). Households buy everything available, so demand never rations quantity.
+- Nominal final spending is E = V·M·dt, and then P = E / (Y·dt). This is exactly MV/Y, but it is now **derived from a spending rule**, not imposed.
+- Settle downstream to upstream once, with each purchase capped by `min(physical need, seller stock, wallet / stage price)`.
+
+With this order, multi-round settlement becomes unnecessary. Drop it, because it adds opaque state.
+
+A side benefit: a capacity shock reaches Y only after the distributor's buffer drains. That lag is good, honest teaching material, but annotate it so learners don't read it as a bug.
+
+### 1.2 V must be checked against the household wallet
+Only households buy final goods, but V is defined over all of M. Spending per step is V·M·dt, and households hold 60% of M. At dt = 0.1, any V above roughly 6 is infeasible on the first step. Under shocks or payout lags, the limit is lower.
+
+- Cap spending at the household wallet.
+- Display **V_assumed** next to **V_realized = E / (M·dt)**. When they differ, flag it ("households cash-constrained").
+
+This is also the best quantity-equation lesson available. MV = PY with *measured* V is an identity. Treating V as a stable parameter is a behavioral assumption. P adjusting is your closure. Label those three layers explicitly in the methodology and in the equation panel.
+
+### 1.3 "Return net *positive* receipts" ratchets firm cash down
+- Firms pay out gains but absorb losses, such as rebuilding inventory after a shock or price-level drops on purchases. Each firm wallet then drifts monotonically toward zero, and supply chains eventually seize for monetary reasons. That is a hidden artifact, not economics.
+- **Fix:** give each firm a **working-capital target**, for example k × expected input bill. Pay out only cash above the target, and retain earnings when below it. This is symmetric, stable, and explainable.
+- Pay household income **one step later**. The return arc then becomes visible in the animation, and the timing of the income loop becomes a teachable concept. Same-step payout makes circulation look instantaneous.
+
+### 1.4 Intermediate prices tied to the *current* P cause revaluation effects
+When P jumps (an excess-money injection or a Y drop), a distributor holding stock bought at 0.75·P_old earns windfall or loss margins. That is fine, but:
+- Keep inventories in **physical units only**, and never show "inventory value profit."
+- Verify the working-capital target absorbs these swings. Otherwise §1.3 compounds them.
+
+### 1.5 The value-added identity is missing from the teaching
+Stage shares of 0.2 / 0.25 / 0.30 / 0.25 sum to P. Showing **Σ value added = final sales = P·Y** is the cleanest explanation of why intermediate payments are excluded from Y. Also add a separate **total transactions** counter (Fisher's P·T) to contrast with P·Y. It makes "V is final-spending velocity, not all payments" concrete instead of asserted.
+
+### 1.6 Auto-stabilize lags behind steady growth
+A 20% partial-adjustment controller tracking growing Y has a steady-state price gap: P sits persistently below target during growth. Either show that gap as an intended lesson ("rules lag"), or base the target on next-step Y. Also state that proportional injection is **distribution-neutral by construction**, so there are no Cantillon effects. Mention this in the methodology as a deliberate simplification that a later "inject via households" option could relax.
+
+### 1.7 Money has no real effects, and the app must say so
+In this model, Y is purely supply-determined, so excess money changes only P. That is correct for a flexible-price, long-run frame. Put it in one sentence on the excess-money card, or learners will over-generalize.
+
+---
+
+## 2. Smaller economic points
+- **Buffer throttling:** production = min(capacity·dt, input stock, max(0, target_out − out_stock + expected draw)). Without the max(0, …) term and a draw estimate, upstream oscillates after a bottleneck change.
+- **Raw stage** has no input cost, so all its revenue is value added. That is fine; just note it in the inspector.
+- **Y = 0:** show "no market price (no final sales)". Money is idle. The timeline should break the P line rather than interpolate.
+- **Period-over-period change:** label it "per period" everywhere. Per-step versus per-period confusion with dt = 0.1 is likely, so pick one display unit (per period) and compound consistently.
+- **Scenario naming:** "fixed-money growth" yields falling prices (0.833). Say "deflation" explicitly, or the "healthy growth" contrast is lost.
+
+---
+
+## 3. Engine architecture
+- **Pure step function:** `step(state, params) → { state, ledger: Entry[], diagnostics }`. Immutable snapshots enable timeline scrubbing and replay for free.
+- **Fixed phase order**, exported as data so the UI can display it: `produce → final sale → upstream settlement → income payout (lagged) → issuer`.
+- **Integer money** in cents or micro-dollars. Allocate rounding remainders deterministically, for example to the largest wallet. With floats, the M invariant will drift.
+- **Invariant assertions every step:**
+  - ΔM equals the issuer flow.
+  - Every ledger entry balances.
+  - Inventories are non-negative.
+  - Final sales value equals the sum of value added.
+- **Double-entry ledger** with typed entries: `FINAL_SALE | INTERMEDIATE | INCOME | ISSUE | REDEEM`. The UI's ledger view is then a filter, not a separate model.
+- **Future-proofing without premature abstraction:** add `currency` on wallets and ledger entries, and `economyId` on nodes. Keep FX and international settlement as a separate layer outside the domestic step. Don't build interfaces for Europe or India yet.
+- **Diagnostics object:** V_realized, binding constraints per node (capacity, input, cash, buffer), and payout retained versus paid. The inspector reads from this.
+
+---
+
+## 4. Interaction design
+- **Add a step-through mode** that highlights each phase in order. Continuous animation of goods, money, income and issuer flows at once is too much to parse. Let learners pause on "who paid whom, and why it was capped."
+- **Encode goods and money by shape and direction, not only color.** Ivory/ink/green is tight on contrast. Respect `prefers-reduced-motion`.
+- **Scale token size or density to flow magnitude.** Unit-count tokens become noise when V or M changes.
+- **Equation panel:** substitute live values and highlight the term that changed this step. Show V_assumed and V_realized when they diverge.
+- **Inspector:** show the binding constraint as a sentence, e.g. "Manufacturer limited by input stock (processor buffer empty)." This is the single most useful explanation surface.
+- **Timeline:** use the "period" unit, add markers where scenario shocks occur, and break the P line where it is undefined.
+- **Roadmap:** non-interactive, clearly labeled. Your decision to avoid fake tabs is right.
+
+---
+
+## 5. Suggested validation cases
+Add these alongside your existing fixed cases, which check out arithmetically (0.833, 1.5, 1.2):
+1. Steady state: wallets constant across 100 steps.
+2. Capacity loss: Y drops after the buffer delay, and P rises inversely.
+3. A high-V case that triggers the household cash cap.
+4. Firm wallets stay bounded over a long run under repeated shocks (tests §1.3).
+5. Auto-stabilize during constant growth, measuring the steady-state gap.
+
+Happy to do the final review once you've decided which of these to adopt.

@@ -1,0 +1,49 @@
+Engine is clean. Now checking the UI layer for anything that contradicts it.
+
+# Money Lab MVP: final review
+
+I only read the files. I didn't run anything or look at the screenshots, since they're older than the latest UI changes. I reviewed against your stated decisions and am not reopening them.
+
+## Verdict
+The core teaching model holds together. I found no money-conservation or accounting bugs in the engine. All required fixes are in the UI or in the wording of explanations.
+
+## What I checked and found correct
+- **Money conservation:** ordinary payments never change M. Each firm pays exactly what it receives (stage payment minus its margin, which goes to households), so firm wallets end each tick where they started (`transactions.ts:19-30`). Spending per tick is M·V·dt, at most 30% of M. Households always hold 60% of M because issuance is proportional, so settlement finishes in one batch.
+- **Manual and auto issuance together:** `lastAdjustment` adds them correctly (`simulationEngine.ts:75`). The journal-versus-wallet test runs 200 cases mixing both.
+- **Y counts final goods only:** Y = quantity/dt at the consumer. The ledger checks that total value added equals final sales, and the 20/45/75/100% price shares add up correctly.
+- **Production:** the opening buffers (50) never limit output. The most a stage can produce in one tick is 200·2·0.1 = 40. Your notes describe this accurately.
+- **Scenarios:** fresh state, 12 baseline ticks, a pure clone each step, no randomness. The numbers in the text match the engine: 0.833, 1.500, 1.200, 1.250, and converging to M = 120.
+- **Undefined prices:** P stays null when Y = 0, the price line breaks and restarts correctly, legend and metrics show "—", and the CSV writes an empty field.
+- **Reduced motion:** the CSS rule plus JS checks switch off the SVG `animateMotion` tokens and show static ones instead. The issuer and owner-income animations are also hidden.
+
+## Required fixes (in priority order)
+
+1. **The map shows payments when nothing is sold** (`EconomyMap.tsx:46`). The label is computed as `M·V·share`, so at capacity 0 it still shows $20, $45, $75 and $100 per period while the ledger is empty and P is "—". That breaks the main lesson that payments mirror goods. Show $0 or "—" when `Y === 0`, or take the amounts from the ledger.
+
+2. **Every slider movement runs a full model tick.** That's what you decided for discrete changes, but range inputs fire `onChange` on every step of a drag. Dragging M from 100 to 150 runs about 10 ticks, moves t forward while paused, adds about 10 event markers, and lets the auto issuer converge partway through the drag. Fix: apply the change on release (`pointerup`/`keyup`/`change`), or merge a drag into one update. Otherwise the claim "one control change = one step" isn't true.
+
+3. **The Target P field is hard to type into** (`ScenarioControls.tsx:28`). It's a controlled number input that clamps and runs a tick on every keystroke. Typing "0.8" turns the "0" into 0.5 straight away, and "1.5" runs up to three ticks. Commit the value on blur or Enter, or use a select or stepper.
+
+4. **The velocity explanation is wrong in the default mode** (`simulationEngine.ts:67`). Auto Stabilize is on by default, and in that mode raising V makes the issuer remove money, which brings P back. The text says "when M and Y stay fixed… No new money is required". Give it an auto-mode version like the productivity text already has (lines 63–65), for example: "With auto-stabilization on, the issuer withdraws dollars so P returns toward target."
+
+## Should fix (smaller)
+
+5. **Transaction IDs can collide.** Manual issuance uses tick+1 and auto issuance uses the same tick number, both with the ID pattern `${tick}-issue-${i}`. If both happen in one tick, React gets duplicate keys. The UI blocks this by disabling the M slider in auto mode, but the engine API and the extreme-change test do hit it. Add a `manual`/`auto` prefix to the IDs.
+
+6. **The starting screen claims consumption that hasn't happened.** At t = 0 the screen shows Y = 100 and P = 1. But the ledger is empty and the Households inspector shows "Consumed / step: 0 units". The notes say "displayed output always corresponds to actual consumption", which isn't true until the first tick. Run one tick in `createSimulation`, or label t = 0 as a "steady-state starting point".
+
+7. **The M slider goes out of range in auto mode.** The issuer can push M to about 0.4 or about 3200, outside the slider's 10–300. The thumb stays pinned while the number keeps changing. Add a hint such as "outside the manual range", or clamp the issuer target.
+
+8. **Accessibility gaps:**
+   - The tabs have no `aria-controls`/`tabpanel` and no arrow-key navigation.
+   - Closing the dialog unmounts it without calling `close()`, so focus may not return to the "Model notes" button. Return focus yourself.
+   - The SVG `[tabindex]` outline may not render on `<g>` elements, but the `.node-card` focus style covers that, so it's fine.
+
+## Optional extensions (not bugs)
+- Make the chart's y-axis log-scale or clip it. Extreme settings (P up to about 360) squash the indexed lines flat.
+- The timeline is hover-only. The legend values and CSV export are adequate fallbacks for now.
+- Add a test that renders the chart with a P gap and a test for a slider drag.
+- Re-take the screenshots after the typography changes.
+- Your planned future layers: three countries, USD settlement, FX, inventory investment.
+
+After fixes 1–4, the first MVP's teaching claims would match what the engine actually computes.
